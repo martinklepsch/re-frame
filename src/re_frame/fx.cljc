@@ -41,7 +41,7 @@
 ;; -- Builtin Effect Handlers  ------------------------------------------------
 
 (defn register-built-in!
-  [registry event-queue]
+  [{:keys [registry app-db event-queue] :as frame}]
   (let [register (partial reg/register-handler registry kind)]
 
     ;; :dispatch-later
