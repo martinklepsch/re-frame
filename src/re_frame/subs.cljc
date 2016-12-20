@@ -15,7 +15,53 @@
 ;; De-duplicate subscriptions. If two or more equal subscriptions
 ;; are concurrently active, we want only one handler running.
 ;; Two subscriptions are "equal" if their query vectors test "=".
-(def query->reaction (atom {}))
+
+(defprotocol ICache
+  ;; Using -prefixed methods here because for some reason when removing the dash I get
+  ;;
+  ;; java.lang.ClassFormatError: Duplicate method name&signature in class file re_frame/subs/SubscriptionCache
+  ;;
+  ;; as far as I understand that would happen when you try to implement two identically
+  ;; named functions in one defrecord call but I don't see how I'm doing that here
+  (-clear [this])
+  (-cache-and-return [this query-v dyn-v r])
+  (-cache-lookup
+    [this query-v]
+    [this query-v dyn-v]))
+
+(defrecord SubscriptionCache [state]
+  #?(:cljs IDeref :clj clojure.lang.IDeref)
+  #?(:cljs (-deref [this] (-> this :state deref))
+     :clj (deref [this] (-> this :state deref)))
+  ICache
+  (-clear [this]
+    (doseq [[k rxn] @state]
+      (dispose! rxn))
+    (if (not-empty @state)
+      (console :warn "Subscription cache should be empty after clearing it.")))
+  (-cache-and-return [this query-v dyn-v r]
+    (let [cache-key [query-v dyn-v]]
+      ;; when this reaction is no longer being used, remove it from the cache
+      (add-on-dispose! r #(do (swap! state dissoc cache-key)
+                              (trace/with-trace {:operation (first-in-vector query-v)
+                                                 :op-type   :sub/dispose
+                                                 :tags      {:query-v  query-v
+                                                             :reaction (reagent-id r)}}
+                                nil)))
+      ;; cache this reaction, so it can be used to deduplicate other, later "=" subscriptions
+      (swap! state assoc cache-key r)
+      (trace/merge-trace! {:tags {:reaction (reagent-id r)}})
+      r))
+  (-cache-lookup [this query-v]
+    (-cache-lookup this query-v []))
+  (-cache-lookup [this query-v dyn-v]
+    (get @state [query-v dyn-v])))
+
+(defn clear-all-handlers!
+  "Unregisters all existing subscription handlers and clears the subscription cache"
+  [{:keys [registry subs-cache]}]
+  (reg/clear-handlers registry kind)
+  (-clear subs-cache))
 
 (defn clear-subscription-cache!
   "Runs on-dispose for all subscriptions we have in the subscription cache.
@@ -29,50 +75,21 @@
   aren't cleaned up properly. This means a subscription's on-dispose function isn't
   run when the components are destroyed. If a bad subscription caused your exception,
   then you can't fix it without reloading your browser."
-  []
-  (doseq [[k rxn] @query->reaction]
+  [subs-cache]
+  (doseq [[k rxn] @subs-cache]
     (dispose! rxn))
-  (if (not-empty @query->reaction)
+  (if (not-empty @subs-cache)
     (console :warn "Subscription cache should be empty after clearing it.")))
-
-(defn clear-all-handlers!
-  "Unregisters all existing subscription handlers"
-  [registry]
-  (reg/clear-handlers registry kind)
-  (clear-subscription-cache!))
-
-(defn cache-and-return
-  "cache the reaction r"
-  [query-v dynv r]
-  (let [cache-key [query-v dynv]]
-    ;; when this reaction is no longer being used, remove it from the cache
-    (add-on-dispose! r #(do (swap! query->reaction dissoc cache-key)
-                            (trace/with-trace {:operation (first-in-vector query-v)
-                                               :op-type   :sub/dispose
-                                               :tags      {:query-v  query-v
-                                                           :reaction (reagent-id r)}}
-                              nil)))
-    ;; cache this reaction, so it can be used to deduplicate other, later "=" subscriptions
-    (swap! query->reaction assoc cache-key r)
-    (trace/merge-trace! {:tags {:reaction (reagent-id r)}})
-    r)) ;; return the actual reaction
-
-(defn cache-lookup
-  ([query-v]
-   (cache-lookup query-v []))
-  ([query-v dyn-v]
-   (get @query->reaction [query-v dyn-v])))
-
 
 ;; -- subscribe -----------------------------------------------------
 
 (defn subscribe
   "Returns a Reagent/reaction which contains a computation"
-  ([{:keys [registry app-db]} query-v]
+  ([{:keys [registry app-db subs-cache]} query-v]
    (trace/with-trace {:operation (first-in-vector query-v)
                       :op-type   :sub/create
                       :tags      {:query-v query-v}}
-     (if-let [cached (cache-lookup query-v)]
+     (if-let [cached (-cache-lookup subs-cache query-v)]
        (do
          (trace/merge-trace! {:tags {:cached?  true
                                      :reaction (reagent-id cached)}})
@@ -84,14 +101,14 @@
          (if (nil? handler-fn)
            (do (trace/merge-trace! {:error true})
                (console :error (str "re-frame: no subscription handler registered for: \"" query-id "\". Returning a nil subscription.")))
-           (cache-and-return query-v [] (handler-fn app-db query-v)))))))
+           (-cache-and-return subs-cache query-v [] (handler-fn app-db query-v)))))))
 
-  ([{:keys [registry app-db]} v dynv]
+  ([{:keys [registry app-db subs-cache]} v dynv]
    (trace/with-trace {:operation (first-in-vector v)
                       :op-type   :sub/create
                       :tags      {:query-v v
                                   :dyn-v   dynv}}
-     (if-let [cached (cache-lookup v dynv)]
+     (if-let [cached (-cache-lookup subs-cache v dynv)]
        (do
          (trace/merge-trace! {:tags {:cached?  true
                                      :reaction (reagent-id cached)}})
@@ -110,7 +127,7 @@
              ;; handler-fn returns a reaction which is then wrapped in the sub reaction
              ;; need to double deref it to get to the actual value.
              ;; (console :log "Subscription created: " v dynv)
-             (cache-and-return v dynv (make-reaction (fn [] @@sub))))))))))
+             (-cache-and-return subs-cache v dynv (make-reaction (fn [] @@sub))))))))))
 
 ;; -- reg-sub -----------------------------------------------------------------
 
