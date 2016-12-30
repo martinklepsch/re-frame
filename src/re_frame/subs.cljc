@@ -4,18 +4,64 @@
    [re-frame.interop   :refer [add-on-dispose! debug-enabled? make-reaction ratom? deref? dispose! reagent-id]]
    [re-frame.loggers   :refer [console]]
    [re-frame.utils     :refer [first-in-vector]]
-   [re-frame.registrar :refer [get-handler clear-handlers register-handler]]
+   [re-frame.registry  :as reg]
    [re-frame.trace     :as trace :include-macros true]))
 
 (def kind :sub)
-(assert (re-frame.registrar/kinds kind))
+(assert (re-frame.registry/kinds kind))
 
 ;; -- cache -------------------------------------------------------------------
 ;;
 ;; De-duplicate subscriptions. If two or more equal subscriptions
 ;; are concurrently active, we want only one handler running.
 ;; Two subscriptions are "equal" if their query vectors test "=".
-(def query->reaction (atom {}))
+
+(defprotocol ICache
+  ;; Using -prefixed methods here because for some reason when removing the dash I get
+  ;;
+  ;; java.lang.ClassFormatError: Duplicate method name&signature in class file re_frame/subs/SubscriptionCache
+  ;;
+  ;; as far as I understand that would happen when you try to implement two identically
+  ;; named functions in one defrecord call but I don't see how I'm doing that here
+  (-clear [this])
+  (-cache-and-return [this query-v dyn-v r])
+  (-cache-lookup
+    [this query-v]
+    [this query-v dyn-v]))
+
+(defrecord SubscriptionCache [state]
+  #?(:cljs IDeref :clj clojure.lang.IDeref)
+  #?(:cljs (-deref [this] (-> this :state deref))
+     :clj (deref [this] (-> this :state deref)))
+  ICache
+  (-clear [this]
+    (doseq [[k rxn] @state]
+      (dispose! rxn))
+    (if (not-empty @state)
+      (console :warn "Subscription cache should be empty after clearing it.")))
+  (-cache-and-return [this query-v dyn-v r]
+    (let [cache-key [query-v dyn-v]]
+      ;; when this reaction is no longer being used, remove it from the cache
+      (add-on-dispose! r #(do (swap! state dissoc cache-key)
+                              (trace/with-trace {:operation (first-in-vector query-v)
+                                                 :op-type   :sub/dispose
+                                                 :tags      {:query-v  query-v
+                                                             :reaction (reagent-id r)}}
+                                nil)))
+      ;; cache this reaction, so it can be used to deduplicate other, later "=" subscriptions
+      (swap! state assoc cache-key r)
+      (trace/merge-trace! {:tags {:reaction (reagent-id r)}})
+      r))
+  (-cache-lookup [this query-v]
+    (-cache-lookup this query-v []))
+  (-cache-lookup [this query-v dyn-v]
+    (get @state [query-v dyn-v])))
+
+(defn clear-all-handlers!
+  "Unregisters all existing subscription handlers and clears the subscription cache"
+  [{:keys [registry subs-cache]}]
+  (reg/clear-handlers registry kind)
+  (-clear subs-cache))
 
 (defn clear-subscription-cache!
   "Runs on-dispose for all subscriptions we have in the subscription cache.
@@ -29,75 +75,46 @@
   aren't cleaned up properly. This means a subscription's on-dispose function isn't
   run when the components are destroyed. If a bad subscription caused your exception,
   then you can't fix it without reloading your browser."
-  []
-  (doseq [[k rxn] @query->reaction]
+  [subs-cache]
+  (doseq [[k rxn] @subs-cache]
     (dispose! rxn))
-  (if (not-empty @query->reaction)
+  (if (not-empty @subs-cache)
     (console :warn "Subscription cache should be empty after clearing it.")))
-
-(defn clear-all-handlers!
-  "Unregisters all existing subscription handlers"
-  []
-  (clear-handlers kind)
-  (clear-subscription-cache!))
-
-(defn cache-and-return
-  "cache the reaction r"
-  [query-v dynv r]
-  (let [cache-key [query-v dynv]]
-    ;; when this reaction is no longer being used, remove it from the cache
-    (add-on-dispose! r #(do (swap! query->reaction dissoc cache-key)
-                            (trace/with-trace {:operation (first-in-vector query-v)
-                                               :op-type   :sub/dispose
-                                               :tags      {:query-v  query-v
-                                                           :reaction (reagent-id r)}}
-                              nil)))
-    ;; cache this reaction, so it can be used to deduplicate other, later "=" subscriptions
-    (swap! query->reaction assoc cache-key r)
-    (trace/merge-trace! {:tags {:reaction (reagent-id r)}})
-    r)) ;; return the actual reaction
-
-(defn cache-lookup
-  ([query-v]
-   (cache-lookup query-v []))
-  ([query-v dyn-v]
-   (get @query->reaction [query-v dyn-v])))
-
 
 ;; -- subscribe -----------------------------------------------------
 
 (defn subscribe
   "Returns a Reagent/reaction which contains a computation"
-  ([query-v]
+  ([{:keys [registry app-db subs-cache]} query-v]
    (trace/with-trace {:operation (first-in-vector query-v)
                       :op-type   :sub/create
                       :tags      {:query-v query-v}}
-     (if-let [cached (cache-lookup query-v)]
+     (if-let [cached (-cache-lookup subs-cache query-v)]
        (do
          (trace/merge-trace! {:tags {:cached?  true
                                      :reaction (reagent-id cached)}})
          cached)
 
        (let [query-id   (first-in-vector query-v)
-             handler-fn (get-handler kind query-id)]
+             handler-fn (reg/get-handler registry kind query-id)]
          (trace/merge-trace! {:tags {:cached? false}})
          (if (nil? handler-fn)
            (do (trace/merge-trace! {:error true})
                (console :error (str "re-frame: no subscription handler registered for: \"" query-id "\". Returning a nil subscription.")))
-           (cache-and-return query-v [] (handler-fn app-db query-v)))))))
+           (-cache-and-return subs-cache query-v [] (handler-fn app-db query-v)))))))
 
-  ([v dynv]
+  ([{:keys [registry app-db subs-cache]} v dynv]
    (trace/with-trace {:operation (first-in-vector v)
                       :op-type   :sub/create
                       :tags      {:query-v v
                                   :dyn-v   dynv}}
-     (if-let [cached (cache-lookup v dynv)]
+     (if-let [cached (-cache-lookup subs-cache v dynv)]
        (do
          (trace/merge-trace! {:tags {:cached?  true
                                      :reaction (reagent-id cached)}})
          cached)
        (let [query-id   (first-in-vector v)
-             handler-fn (get-handler kind query-id)]
+             handler-fn (reg/get-handler registry kind query-id)]
          (trace/merge-trace! {:tags {:cached? false}})
          (when debug-enabled?
            (when-let [not-reactive (not-empty (remove ratom? dynv))]
@@ -109,8 +126,8 @@
                  sub      (make-reaction (fn [] (handler-fn app-db v @dyn-vals)))]
              ;; handler-fn returns a reaction which is then wrapped in the sub reaction
              ;; need to double deref it to get to the actual value.
-             ;(console :log "Subscription created: " v dynv)
-             (cache-and-return v dynv (make-reaction (fn [] @@sub))))))))))
+             ;; (console :log "Subscription created: " v dynv)
+             (-cache-and-return subs-cache v dynv (make-reaction (fn [] @@sub))))))))))
 
 ;; -- reg-sub -----------------------------------------------------------------
 
@@ -166,7 +183,7 @@
   of an `input signals` functions. `:<-` is supplied followed by the subscription
   vector.
   "
-  [query-id & args]
+  [{:keys [registry app-db] :as frame} query-id & args]
   (let [computation-fn (last args)
         input-args     (butlast args) ;; may be empty, or one fn, or pairs of  :<- / vector
         err-header     (str "re-frame: reg-sub for " query-id ", ")
@@ -184,8 +201,8 @@
 
                          ;; one sugar pair
                          2 (fn inp-fn
-                             ([_] (subscribe (second input-args)))
-                             ([_ _] (subscribe (second input-args))))
+                             ([_] (subscribe frame (second input-args)))
+                             ([_ _] (subscribe frame (second input-args))))
 
                          ;; multiple sugar pairs
                          (let [pairs (partition 2 input-args)
@@ -193,9 +210,10 @@
                            (when-not (every? vector? vecs)
                              (console :error err-header "expected pairs of :<- and vectors, got:" pairs))
                            (fn inp-fn
-                             ([_] (map subscribe vecs))
-                             ([_ _] (map subscribe vecs)))))]
-    (register-handler
+                             ([_] (map (partial subscribe frame) vecs))
+                             ([_ _] (map (partial subscribe frame) vecs)))))]
+    (reg/register-handler
+      registry
       kind
       query-id
       (fn subs-handler-fn

@@ -1,12 +1,9 @@
+> In a rush? You can get away with skipping this page on the first pass. <br>
+> Next page: [Basic App Structure](Basic-App-Structure.md)
+
 ## Flow Mechanics
 
-This tutorial is advanced and can be skipped. It provides background. 
-It explains at the underlying reactive mechanism for dominoes 4-5-6.
-
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-### Table Of Contents
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+This tutorial explains the underlying reactive mechanism used in dominoes 4-5-6. It goes on to introduce `re-frame.core/reg-sub-raw`.
 
 ## On Flow
 
@@ -33,8 +30,7 @@ Steve Grand
 ### How Flow Happens In Reagent
 
 To implement a reactive flow, Reagent provides a `ratom` and a `reaction`.
-re-frame uses both of these
-building blocks, so let's now make sure we understand them.
+re-frame uses both of these building blocks, so let's now make sure we understand them.
 
 `ratoms` behave just like normal ClojureScript atoms. You can `swap!` and `reset!` them, `watch` them, etc.
 
@@ -43,7 +39,8 @@ perspective, we'll tweak that paradigm slightly and **view a `ratom` as having a
 changes over time.**  Seems like a subtle distinction, I know, but because of it, re-frame sees a
 `ratom` as a Signal. 
 
-A Signal is a value that changes over time.  So it is a stream of values. 
+A Signal is a value that changes over time.  So it is a stream of values. Each time a ratom gets
+`reset!` that's a new value in the stream. 
 
 The 2nd building block, `reaction`, acts a bit like a function. It's a macro which wraps some
 `computation` (a block of code) and returns a `ratom` holding the result of that `computation`.
@@ -207,10 +204,99 @@ ratom-nature, so we'll happily continue believing it is a `ratom` and no harm wi
 On with the rest of my lies and distortions...
 
 
+### reg-sub-raw
+
+Provides a low level way to register a subscription handler - so the intent is similar to `reg-sub`.
+
+Use is re-frame standard:
+```clj
+(re-frame.core/reg-sub-raw   ;; it is part of the API
+  :query-id     ;; later use (subscribe [:query-id])
+  some-fn)      ;; this function provides the reactive stream
+```
+
+The interesting bit is how `some-fn` is written. Here's an example:
+```clj
+(defn some-fn 
+  [app-db event]    ;; app-db is not a value, it is a reagent/atom
+  (reaction (get-in @app-db [:some :path])))  ;; returns a reaction
+```
+Notice:
+  1. `app-db` is the first argument and it is NOT a value, it is a reagent/atom  (different to `reg-sub`!)
+  2. it returns a `reaction` which does a computation, not a value (different to `reg-sub`!)
+  3. Within that `reaction` `app-db` is deref-ed (see use of `@`) 
+  
+As a result of point 3, each time `app-db` changes, the `reaction` will rerun. `app-db` is an input signal to that `reaction`. 
+
+Unlike `reg-sub`, there is no 3-arity version of `reg-sub-raw`, so there's no way for you to provide an input signals function.
+Instead, even simplier, you can use any `subscribe` you want within the `reaction` itself. For example:
+```clj
+(defn some-fn
+   [app-db event]
+   (reaction
+     (let [a-path-element @(subscribe [:get-path-part])]   ;; <-- subscribe used here
+       get-in @app-db [:some a-path-element])))
+```
+So now this `reaction` has two input signals: `app-db` and `(subscribe [:get-path-part])`.  If either changes, 
+the `reaction` will rerun.
+
+In some cases, the returned `reaction` might not even
+use `app-db` and, instead, it might only use `subscribe` to provide input signals. In that case, the 
+registered subscription would belong to "Level 3" of the signal graph (discussed in earlier tutorials).
+
+Remember to deref any use of `app-db` and `subscribe`.  It is a rookie mistake to forget. I do it regularly.
+
+Instead of using `reaction` (a macro), you can use `reagent/make-reaction` (a utility function) which gives you the additional 
+ability to attach an `:on-dispose` handler to the returned reaction, allowing you to do cleanup work when the subscription is no longer needed. 
+[See an example of using `:on-dispose` here](Subscribing-To-External-Data.md)
+
+### Example reg-sub-raw 
+
+The following use of `reg-sub` can be found in [the todomvc example](https://github.com/Day8/re-frame/blob/develop/examples/todomvc/src/todomvc/subs.cljs):
+```clj
+(reg-sub
+  :visible-todos
+  
+  ;; signal function - returns a vector of two input signals
+  (fn [query-v _]     
+    [(subscribe [:todos])
+     (subscribe [:showing])])
+
+  ;; the computation function - 1st arg is a 2-vector of values
+  (fn [[todos showing] _]   
+    (let [filter-fn (case showing
+                      :active (complement :done)
+                      :done   :done
+                      :all    identity)]
+      (filter filter-fn todos))))
+```
+
+we could rewrite this use of `reg-sub` using `reg-sub-raw` like this:
+```clj
+(reg-sub-raw 
+  :visible-todos
+  (fn [app-db event]  ;; app-db not used, name shown for clarity
+    (reaction         ;; wrap the computation in a reaction
+      (let [todos   @(subscribe [:todos])   ;; input signal #1
+	        showing @(subscribe [:showing]) ;; input signal #2 
+		    filter-fn (case showing
+                        :active (complement :done)
+                        :done   :done
+                        :all    identity)]
+	    (filter filter-fn todos))))
+```
+
+Any other part of the app, which needed to do `(subscribe [:visible-todos])` need never know which of the two variations above was used. Same result.
+
+
+
 *** 
 
-Previous: [Flow Mechanics](SubscriptionFlow.md)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+Previous: [Correcting a wrong](SubscriptionsCleanup.md)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 Up:       [Index](README.md)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 Next:     [Basic App Structure](Basic-App-Structure.md) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 
 
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->

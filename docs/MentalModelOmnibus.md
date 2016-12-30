@@ -1,15 +1,13 @@
 
+> In a rush? You can get away with skipping this page on the first pass. <br>
+> But remember to cycle back to it later. It contains useful insights.<br>
+> Next page: [Effectful Handlers](EffectfulHandlers.md)
+
 ## Mental Model Omnibus
 
-> If a factory is torn down but the rationality which produced it is
-left standing, then that rationality will simply produce another
-factory. If a revolution destroys a government, but the systematic
-patterns of thought that produced that government are left intact,
-then those patterns will repeat themselves. <br>
-> -- Robert Pirsig, Zen and the Art of Motorcycle Maintenance
+<img height="450px" align="right" src="/images/mental-model-omnibus.jpg?raw=true">
 
-
-<img height="350px" align="right" src="/images/mental-model-omnibus.jpg?raw=true">
+> All models are wrong, but some are useful
 
 The re-frame tutorials initially focus on the **domino
 narrative**. The goal is to efficiently explain the mechanics of re-frame,
@@ -22,20 +20,28 @@ This tutorial is a tour of these ideas, justifications and insights.
 It is a little rambling, but I'm hoping it will deliver for you 
 at least one "Aaaah, I see" moment before the end.
 
-> All models are wrong, but some are useful
+> If a factory is torn down but the rationality which produced it is
+left standing, then that rationality will simply produce another
+factory. If a revolution destroys a government, but the systematic
+patterns of thought that produced that government are left intact,
+then those patterns will repeat themselves. <br>
+> -- Robert Pirsig, Zen and the Art of Motorcycle Maintenance
+
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-## Table Of Contents
+### Table Of Contents
 
-- [What is the problem?](#what-is-the-problem)
+- [What is the problem?](#what-is-the-problem-)
 - [Guiding Philosophy](#guiding-philosophy)
 - [It does Event Sourcing](#it-does-event-sourcing)
 - [It does a reduce](#it-does-a-reduce)
 - [Derived Data All The Way Down](#derived-data-all-the-way-down)
 - [It does FSM](#it-does-fsm)
+- [Interconnections](#interconnections)
 - [Full Stack](#full-stack)
-- [What Of This Romance?](#what-of-this-romance)
+- [What Of This Romance?](#what-of-this-romance-)
+
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -246,7 +252,8 @@ know interconnections are often critical to a system.
 In the case of re-frame, dominoes are the **parts**, so, tick, yes, we have
 looked at them first. Our brains are happy. But what about the **interconnections**?
 
-If the **parts** are functions, what does it even mean to talk about **interconnections between functions?** 
+If the **parts** are functions, as is the case with re-frame, 
+what does it even mean to talk about **interconnections between functions?** 
 To answer that question, I'll rephrase it as:
 how are the domino functions **composed**?
 
@@ -273,8 +280,10 @@ composition in terms of data flow**.
 re-frame delivers architecture 
 by supplying the interconnections - it threads the data - it composes the dominoes - it is the lines between the boxes. 
 
-But re-frame has no universal method for this. The technique it uses varies from one domino neighbour 
-pair to the next. 
+But it has no universal method for this. The technique it uses varies from one domino neighbour 
+pair to the next.  Initially, it uses a queue/router, then a pipeline of interceptors 
+and finally a Signal Graph.
+
 
 ## Full Stack
 
@@ -307,7 +316,7 @@ Your love for re-frame will be deep, abiding and enriching.
 
 Previous:  [First Code Walk-Through](CodeWalkthrough.md)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 Up:  [Index](README.md)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-Next:  [Effectful Handlers](EffectfulHandlers.md)  
+Next:  [Infographic Overview](EventHandlingInfographic.md)
 
 
 [SPAs]:http://en.wikipedia.org/wiki/Single-page_application

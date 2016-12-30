@@ -6,13 +6,9 @@ This tutorial explains how side effects are actioned,
 how you can create your own side effects, and how you can 
 make side effects a noop in event replays.
 
-> imperative programming is a big pile of do  <br>
-> &nbsp; &nbsp;  -- @stuarthalloway
-
-
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-## Table Of Contents
+### Table Of Contents
 
 - [Where Effects Come From](#where-effects-come-from)
 - [The Effects Map](#the-effects-map)
@@ -54,18 +50,18 @@ Like this:
 
 An effects map contains instructions.
 
-Each key/value pair in the map is one instruction - the `key` uniquely identifies 
-the particular side effect required, and the `value` for that `key` provides 
-further data. The structure of `value` is different for each side-effect. 
+Each key/value pair in the map is one instruction - the `key` uniquely identifies
+the particular side effect required, and the `value` for that `key` provides
+further data. The structure of `value` is different for each side-effect.
 
-Here's the two instructions from the example above: 
+Here's the two instructions from the example above:
 ```cljs 
 {:db       (assoc db :flag  a)         ;; side effect on app-db
  :dispatch [:do-something-else 3]}     ;; dispatch this event
 ```
 
 The `:db` `key` instructs that "app-db" should be `reset!` to the
-`value` supplied.  
+`value` supplied.
 
 And the `:dispatch` `key` instructs that an event should be
 dispatched. The `value` is the vector to dispatch.
@@ -73,19 +69,19 @@ dispatched. The `value` is the vector to dispatch.
 There's many other possible
 effects, like for example `:dispatch-later` or `:set-local-store`. 
 
-And so on. And so on. Which brings us to a problem. 
+And so on. And so on. Which brings us to a problem.
 
 ### Infinite Effects
 
-While re-frame supplies a number of builtin effects, the set of 
+While re-frame supplies a number of builtin effects, the set of
 possible effects is open ended.
 
-What if you use PostgreSQL and want an effect which issues mutating 
+What if you use PostgreSQL and want an effect which issues mutating
 queries?  Or what if you want to send logs to Logentries or metrics to DataDog.
 Or write values to windows.location. And what happens if your database is
 X, Y or Z?
 
-The list of effects is long and varied, with everyone needing to use a 
+The list of effects is long and varied, with everyone needing to use a
 different combination.
 
 So effect handling has to be extensible. You need a way to define 
@@ -347,16 +343,8 @@ usage:
 
 ### External Effects
 
-- https://github.com/Day8/re-frame-http-fx   (GETs and POSTs)
-- https://github.com/Day8/re-frame-forward-events-fx  (slightly exotic)
-- https://github.com/Day8/re-frame-async-flow-fx  (more complicated)
-- https://github.com/micmarsh/re-frame-youtube-fx (YouTube iframe API wrapper)
-- https://github.com/madvas/re-frame-web3-fx (Ethereum Web3 API)
-- https://github.com/madvas/re-frame-google-analytics-fx (Google Analytics API)
+Please see the [External-Resources document](External-Resources.md) for a list of 3rd part Effect Handlers.
 
-Create a PR to include yours in this list. 
-
-XXX maybe put this list into the Wiki, so editable by all. 
 
 ***
 

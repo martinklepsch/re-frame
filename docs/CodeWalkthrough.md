@@ -2,55 +2,45 @@
 
 ## Initial Code Walk-through
 
-At this point, you are about 50% of the way to understanding re-frame.  You are armed with:
- - a high level understanding of the 6 domino process (from re-frame's README)
- - an understanding of application state (from the previous tutorial) 
+At this point, you are about 50% of the way to understanding re-frame.  You have:
+ - an overview of the 6 domino process [from this repo's README](../README.md)
+ - an understanding of app state ([from the previous tutorial)](ApplicationState.md))
 
-By the end of this tutorial, you'll be at 70%, which is good
+In this tutorial, **we look at re-frame code**. By the end of it, you'll be at 70% knowledge, which is good
 enough to start coding by yourself.
-
-In this tutorial, **we'll look at re-frame code**.
 
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-## Table Of Contents
+### Table Of Contents
 
 - [What Code?](#what-code)
 - [What Does It Do?](#what-does-it-do)
 - [Namespace](#namespace)
 - [Data Schema](#data-schema)
 - [Events (domino 1)](#events-domino-1)
-  - [dispatch](#dispatch)
-  - [After dispatch](#after-dispatch)
 - [Event Handlers (domino 2)](#event-handlers-domino-2)
-  - [reg-event-db](#reg-event-db)
-  - [:initialize](#initialize)
-  - [:timer](#timer)
-  - [:time-color-change](#time-color-change)
 - [Effect Handlers (domino 3)](#effect-handlers-domino-3)
 - [Subscription Handlers (domino 4)](#subscription-handlers-domino-4)
-  - [reg-sub](#reg-sub)
 - [View Functions (domino 5)](#view-functions-domino-5)
-  - [Hiccup](#hiccup)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 ## What Code?
 
-This repo contains an example application called ["simple"](https://github.com/Day8/re-frame/tree/develop/examples/simple),
-which has around 70 lines of code. We'll look at every line of [the file](https://github.com/Day8/re-frame/blob/develop/examples/simple/src/simple/core.cljs).
+This repo contains an `/examples` application called ["simple"](https://github.com/Day8/re-frame/tree/develop/examples/simple),
+which contains 70 lines of code. We'll look at every line of [the file](https://github.com/Day8/re-frame/blob/develop/examples/simple/src/simple/core.cljs).
 
 This app:
  - displays the current time in a nice big, colourful font
  - provides a single text input field, into which you can type a hex colour code, 
    like "#CCC", used for the time display
       
-Here's what it looks like:
+When it is running, here's what it looks like:
 
 ![Example App image](../images/example_app.png)
 
-To run the code: 
+To run the code yourself: 
  * Install Java 8 
  * Install leiningen  (http://leiningen.org/#install)
 
@@ -58,7 +48,12 @@ Then:
   1. `git clone https://github.com/Day8/re-frame.git`
   2. `cd re-frame/examples/simple`
   3. `lein do clean, figwheel`
-  4. open http://localhost:3449/example.html
+  4. wait a minute and then open `http://localhost:3449/example.html`
+  
+So, what's just happened?  The ClojureScript code under `src` has been compiled across to `javascript` and
+put into `/resources/public/js/client.js` which is loaded into `/resources/public/example.html` (the HTML you just openned)
+ 
+Figwheel provides for hot-loading, so you can edit the source and watch the loaded HTML change.  
 
 
 ## Namespace
@@ -94,7 +89,7 @@ to your various handlers as required.
 
 ## Events (domino 1)
 
-Events are data. You choose the format.
+Events are data.
 
 re-frame uses a vector
 format for events. For example:
@@ -108,15 +103,13 @@ associated with the event. The additional value above, `42`, is
 presumably the id of the item to delete.
 
 Here are some other example events:
-
 ```clj
 [:admit-to-being-satoshi false]
-[:set-spam-wanted false :continue-harassment-nevertheless-flag]
-[:some-ns/on-GET-success response] 
+[:dressing/put-pants-on  "velour flares" {:method :left-leg-first :belt false}]
 ```
 
-The `kind` of event is always a keyword, and for non-trivial
-applications it tends to be namespaced.
+The `kind` of event is a keyword, and for non-trivial
+applications it will be namespaced.
 
 **Rule**:  events are pure data. No sneaky tricks like putting
 callback functions on the wire. You know who you are.
@@ -501,10 +494,16 @@ structure exists in `app-db` before any subscriptions or event handlers run.
  - write and register query functions which implement nodes in a signal graph (query layer) (domino 4)
  - write Reagent view functions  (view layer)  (domino 5)
 
-## Further Code
+## Next Steps
 
-You should also look at the [todomvc example application](https://github.com/Day8/re-frame/tree/develop/examples/todomvc).  
+You should now take time to carefully review the [todomvc example application](https://github.com/Day8/re-frame/tree/develop/examples/todomvc).  
 
+After that, you'll be ready to write your own code.  Perhaps you will use a
+template to create your own project: <br>
+Client only:  https://github.com/Day8/re-frame-template  <br>
+Full Stack: http://www.luminusweb.net/
+
+Obviously you should also go on to read the further documentation.
 
 *** 
 

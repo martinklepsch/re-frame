@@ -2,28 +2,19 @@
   (:require
     [re-frame.events           :as events]
     [re-frame.subs             :as subs]
+    [re-frame.frame            :as frame]
     [re-frame.interop          :as interop]
     [re-frame.db               :as db]
     [re-frame.fx               :as fx]
     [re-frame.cofx             :as cofx]
     [re-frame.router           :as router]
     [re-frame.loggers          :as loggers]
-    [re-frame.registrar        :as registrar]
+    [re-frame.registry         :as reg]
     [re-frame.interceptor      :as interceptor]
     [re-frame.std-interceptors :as std-interceptors :refer [db-handler->interceptor
-                                                             fx-handler->interceptor
-                                                             ctx-handler->interceptor]]
+                                                            fx-handler->interceptor
+                                                            ctx-handler->interceptor]]
     [clojure.set               :as set]))
-
-
-;; --  dispatch
-(def dispatch         router/dispatch)
-(def dispatch-sync    router/dispatch-sync)
-
-
-;; XXX move API functions up to this core level - to enable code completion and docs
-;; XXX on figwheel reload, is there a way to not get the re-registration messages.
-
 
 ;; -- interceptor related
 ;; useful if you are writing your own interceptors
@@ -43,65 +34,49 @@
 (def after       std-interceptors/after)
 (def on-changes  std-interceptors/on-changes)
 
+;; XXX move API functions up to this core level - to enable code completion and docs
+;; XXX on figwheel reload, is there a way to not get the re-registration messages.
 
-;; --  subscriptions
-(defn reg-sub-raw
-  "Associate a given `query id` with a given subscription handler function `handler-fn`
-   which is expected to take two arguments: app-db and query vector, and return
-   a `reaction`.
+;; Export API wrapping `the-frame` singleton ---
 
-  This is a low level, advanced function.  You should probably be using reg-sub
-  instead."
-  [query-id handler-fn]
-  (registrar/register-handler subs/kind query-id handler-fn))
+(defn make-frame []
+  (let [registry    (reg/make-registry)
+        event-queue (router/->EventQueue :idle interop/empty-queue {} registry)
+        subs-cache  (subs/->SubscriptionCache (atom {}))]
+    (frame/map->Frame
+     {:registry registry
+      :event-queue event-queue
+      :app-db re-frame.db/app-db
+      :subs-cache subs-cache
+      :default-interceptors [(cofx/inject-cofx registry :db) (fx/do-fx registry)]})))
 
-(def reg-sub             subs/reg-sub)
-(def subscribe           subs/subscribe)
+(def the-frame (make-frame))
 
-(def clear-sub    (partial registrar/clear-handlers subs/kind))
-(def clear-subscription-cache! subs/clear-subscription-cache!)
+(fx/register-built-in! the-frame)
+(cofx/register-built-in! the-frame)
 
-;; -- effects
-(def reg-fx      fx/register)
-(def clear-fx    (partial registrar/clear-handlers fx/kind))
+(def dispatch (partial frame/dispatch the-frame))
+(def dispatch-sync (partial frame/dispatch-sync the-frame))
 
-;; -- coeffects
-(def reg-cofx    cofx/register)
-(def inject-cofx cofx/inject-cofx)
-(def clear-cofx (partial registrar/clear-handlers cofx/kind))
+(def reg-sub-raw (partial frame/reg-sub-raw the-frame))
+;; some slight weirdness here because protocols don't support variadic functions
+(defn reg-sub [query-id & args]
+  (frame/reg-sub the-frame query-id args))
+(def subscribe (partial frame/subscribe the-frame))
+(def clear-sub (partial frame/clear-sub the-frame))
+(def clear-subscriptions-cache! (partial subs/-clear (:subs-cache the-frame)))
 
+(def reg-fx (partial frame/reg-fx the-frame))
+(def clear-fx (partial frame/clear-fx the-frame))
 
-;; --  Events
-(def clear-event (partial registrar/clear-handlers events/kind))
+(def reg-cofx (partial frame/reg-cofx the-frame))
+(def inject-cofx (partial frame/inject-cofx the-frame))
+(def clear-cofx (partial frame/clear-cofx the-frame))
 
-(defn reg-event-db
-  "Register the given `id`, typically a keyword, with the combination of
-  `db-handler` and an interceptor chain.
-  `db-handler` is a function: (db event) -> db
-  `interceptors` is a collection of interceptors, possibly nested (needs flattening).
-  `db-handler` is wrapped in an interceptor and added to the end of the chain, so in the end
-   there is only a chain.
-   The necessary effects and coeffects handler are added to the front of the
-   interceptor chain.  These interceptors ensure that app-db is available and updated."
-  ([id db-handler]
-    (reg-event-db id nil db-handler))
-  ([id interceptors db-handler]
-   (events/register id [cofx/inject-db fx/do-fx interceptors (db-handler->interceptor db-handler)])))
-
-
-(defn reg-event-fx
-  ([id fx-handler]
-   (reg-event-fx id nil fx-handler))
-  ([id interceptors fx-handler]
-   (events/register id [cofx/inject-db fx/do-fx interceptors (fx-handler->interceptor fx-handler)])))
-
-
-(defn reg-event-ctx
-  ([id handler]
-   (reg-event-ctx id nil handler))
-  ([id interceptors handler]
-   (events/register id [cofx/inject-db fx/do-fx interceptors (ctx-handler->interceptor handler)])))
-
+(def reg-event-db (partial frame/reg-event-db the-frame))
+(def reg-event-fx (partial frame/reg-event-fx the-frame))
+(def reg-event-ctx (partial frame/reg-event-ctx the-frame))
+(def clear-event (partial frame/clear-event the-frame))
 
 ;; --  Logging -----
 ;; Internally, re-frame uses the logging functions: warn, log, error, group and groupEnd
@@ -129,22 +104,22 @@
   Checkpoint includes app-db, all registered handlers and all subscriptions.
   "
   []
-  (let [handlers @registrar/kind->id->handler
-        app-db   @db/app-db
-				subs-cache @subs/query->reaction]
+  (let [handlers   (-> the-frame :registry :kind->id->handler deref)
+        app-db     (-> the-frame :app-db deref)
+        subs-cache (-> the-frame :subs-cache deref)]
     (fn []
-			;; call `dispose!` on all current subscriptions which
-			;; didn't originally exist.
-      (let [original-subs (set (vals subs-cache))
-            current-subs  (set (vals @subs/query->reaction))]
+      ;; call `dispose!` on all current subscriptions which
+      ;; didn't originally exist.
+      (let [original-subs (-> subs-cache vals set)
+            current-subs  (-> the-frame :subs-cache deref vals set)]
         (doseq [sub (set/difference current-subs original-subs)]
           (interop/dispose! sub)))
 
       ;; Reset the atoms
-      ;; We don't need to reset subs/query->reaction, as
-      ;; disposing of the subs removes them from the cache anyway
-      (reset! registrar/kind->id->handler handlers)
-      (reset! db/app-db app-db)
+      ;; We don't need to reset subs-cache, as disposing of the subs
+      ;; removes them from the cache anyway
+      (reset! (-> the-frame :registry :kind->id->handler) handlers)
+      (reset! (-> the-frame :app-db) app-db)
       nil)))
 
 
@@ -168,12 +143,12 @@
   ([f]
    (add-post-event-callback f f))   ;; use f as its own identifier
   ([id f]
-   (router/add-post-event-callback re-frame.router/event-queue id f)))
+   (router/add-post-event-callback (:event-queue the-frame) id f)))
 
 
 (defn remove-post-event-callback
   [id]
-  (router/remove-post-event-callback re-frame.router/event-queue id))
+  (router/remove-post-event-callback (:event-queue the-frame) id))
 
 
 ;; --  Deprecation Messages

@@ -3,18 +3,18 @@
 ## Table Of Contents
 
 - [Subscribing to External Data](#subscribing-to-external-data)
-  - [There Can Be Only One!!](#there-can-be-only-one)
-  - [Components Don't Know, Don't Care](#components-dont-know-dont-care)
-  - [A 2nd Source](#a-2nd-source)
-  - [Via A Subscription](#via-a-subscription)
-  - [The Subscription Handler's Job](#the-subscription-handlers-job)
-  - [Some Code](#some-code)
-  - [Any Good?](#any-good)
-  - [Warning: Undo/Redo](#warning-undoredo)
-  - [Query De-duplication](#query-de-duplication)
-  - [Thanks To](#thanks-to)
-- [The Alternative  Approach](#the-alternative--approach)
-- [What Not To Do](#what-not-to-do)
+  * [There Can Be Only One!!](#there-can-be-only-one--)
+  * [Components Don't Know, Don't Care](#components-don-t-know--don-t-care)
+  * [A 2nd Source](#a-2nd-source)
+  * [Via A Subscription](#via-a-subscription)
+  * [The Subscription Handler's Job](#the-subscription-handler-s-job)
+  * [Some Code](#some-code)
+  * [Any Good?](#any-good-)
+  * [Warning: Undo/Redo](#warning--undo-redo)
+  * [Query De-duplication](#query-de-duplication)
+  * [Thanks To](#thanks-to)
+- [The Alternative Approach](#the-alternative-approach)
+- [Absolutely Never Do This](#absolutely-never-do-this)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -131,21 +131,21 @@ Enough fluffing about with words, here's a code sketch for our subscription hand
 ```clj
 (re-frame/reg-sub-raw
   :items
-  (fn [db [_ type]]
+  (fn [app-db [_ type]]
        (let  [query-token (issue-items-query!
                             type
                             :on-success #(re-frame/dispatch [:write-to  [:some :path]]))]
          (reagent/make-reaction
-           (fn [] (get-in @db [:some :path] []))
+           (fn [] (get-in @app-db [:some :path] []))
            :on-dispose #(do (terminate-items-query! query-token)
                             (re-frame/dispatch [:cleanup [:some :path]]))))))
 ```
 
 A few things to notice:
 
-1. We are using the low level `reg-sub-raw` registration for our handler (and not `reg-sub`). 
-   This gives us some low level control. `db` will be an atom. We must return a
-   `reaction` (signal). 
+1. We are using the low level `reg-sub-raw` to register our handler (and not the more normal `reg-sub`)
+   so we can get an `:on-dispose` callback when the subscription is no longer needed.
+   [See the `reg-sub-raw` docs at the end of this tutorial](SubscriptionFlow.md)
    
 2. You have to write  `issue-items-query!`.  Are you making a Restful GET? 
    Are you writing JSON packets down a websocket?  The query has to be made.
@@ -163,6 +163,7 @@ A few things to notice:
 
 4. We use the `on-dispose` callback on this reaction to do any cleanup work
    when the subscription is no longer needed. Clean up `app-db`?  Clean up the database connection?
+
 
 ### Any Good?
 
@@ -212,7 +213,7 @@ in `issue-items-query!` itself. You can
 
 @nidu for his valuable review comments and insights
 
-## The Alternative  Approach
+## The Alternative Approach
 
 Event handlers do most of the heavy lifting within re-frame apps.
 
@@ -238,12 +239,10 @@ Within this document the first alternative has been given more word count
 only because there's a few more tricks to make it work, not because it 
 is necessarily preferred. 
 
-## What Not To Do 
-
-Don't get into making views source their data directly using React lifecycle methods. 
+## Absolutely Never Do This  
 
 Sometimes, because of their background with other JS frameworks, 
-new re-framers feel like the Components themselves (the views) 
+new re-framians feel like the Components themselves (the views) 
 should have the responsibility of sourcing the data they need. 
 
 They then use React lifecycle methods like `:component-did-mount` 
@@ -251,7 +250,7 @@ to load remote data.
 
 I believe this is absolutely the wrong way to do it. 
 
-In re-frame we want views to be as simple and dumb as possible. They turn 
+In re-frame, we want views to be as simple and dumb as possible. They turn 
 data into HTML and nothing more. they absolutely do not do imperative stuff.
 
 Use one of the two alternatives described above.
